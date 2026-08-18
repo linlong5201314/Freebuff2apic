@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+node_modules/
+data/
+credentials/
+freebuff_tools/freebuff_credentials.json
+logs/
+*.log
+.DS_Store
+
+.github/workflows/

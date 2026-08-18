@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FreeBuff Control Plane</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="noise"></div>
+  <main id="app">
+    <section id="login" class="login-shell">
+      <div class="login-card">
+        <div class="brand-mark">F</div>
+        <p class="eyebrow">FREEBUFF CONTROL PLANE</p>
+        <h1>把账号池变成<br><span>稳定的模型通道。</span></h1>
+        <p class="muted">使用部署时生成的管理员密码进入管理面板。</p>
+        <form id="login-form">
+          <label>管理员密码<input id="password" type="password" autocomplete="current-password" required placeholder="输入管理员密码"></label>
+          <button type="submit">进入控制台 <span>↗</span></button>
+          <p id="login-error" class="error" role="alert" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+    <section id="dashboard" class="dashboard hidden">
+      <aside>
+        <div class="logo"><b>F</b><span>FREEBUFF<br><small>CONTROL PLANE</small></span></div>
+        <nav><a class="active" href="#dashboard">Overview</a><a href="#accounts">Account pool</a><a href="#settings">Runtime</a></nav>
+        <div class="aside-foot"><div class="status-dot"></div><span>Gateway online</span><button id="logout">退出</button></div>
+      </aside>
+      <div class="content">
+        <header><div><p class="eyebrow">OPERATIONS / LIVE</p><h2>账号池总览</h2></div><button id="authorize" class="primary" aria-haspopup="dialog">＋ 添加授权账号</button></header>
+        <section class="hero"><div><p>ROUTING ENGINE</p><h3>Session affinity.<br><i>When it matters.</i></h3><p class="muted">优先复用活跃模型会话，额度异常自动换号。每个账号可绑定独立 HTTP/SOCKS 代理出口。</p></div><div class="pulse"><span id="account-count">0</span><small>ACTIVE ACCOUNTS</small></div></section>
+        <section class="metrics"><article><span>API STATUS</span><strong class="green">Operational</strong><small>OpenAI compatible /v1</small></article><article><span>UPTIME</span><strong id="uptime">0m</strong><small>current process</small></article><article><span>ROUTING</span><strong>Session-first</strong><small>round-robin fallback</small></article></section>
+        <section id="accounts" class="panel"><div class="panel-head"><div><p class="eyebrow">ACCOUNT POOL</p><h3>授权账号与独立代理</h3></div><span id="pool-summary" class="chip" aria-live="polite">0 accounts</span></div><div id="accounts-list" class="account-list" aria-live="polite" aria-busy="true"></div></section>
+        <section id="settings" class="panel settings"><div><p class="eyebrow">PERFORMANCE</p><h3>响应速度策略</h3><p class="muted">保留活跃 session、减少重复初始化，并在明确限流后才切换账号。</p></div><div class="setting-row"><label>账号选择策略<select id="strategy"><option value="session-affinity">会话亲和优先</option><option value="round-robin">纯轮询</option></select></label><label>失败重试次数<input id="max-retries" type="number" min="0" max="5" value="2"></label><button id="save-settings">保存运行策略</button></div></section>
+      </div>
+    </section>
+  </main>
+  <dialog id="auth-dialog" aria-labelledby="auth-title" aria-describedby="auth-description"><button class="close" aria-label="关闭授权窗口">×</button><p class="eyebrow">ONE-CLICK AUTHORIZATION</p><h3 id="auth-title">完成浏览器授权</h3><p id="auth-description" class="muted">新窗口完成登录后，本页会自动收录账号凭证。</p><a id="auth-link" target="_blank" rel="noopener">打开授权页面 ↗</a><div class="loader" aria-hidden="true"></div><p id="auth-state" aria-live="polite">正在等待授权...</p></dialog>
+  <script src="/app.js"></script>
+</body>
+</html>
