@@ -58,6 +58,48 @@ function loadStore() {
 function saveStore(store) {
   writeFileSync(credentialsFile, JSON.stringify(store, null, 2), { mode: 0o600 });
 }
+// PaaS（Railway 等）容器文件系统不持久：支持直接用 FREEBUFF_TOKEN / FREEBUFF_ACCOUNTS
+// 环境变量注入账号，每次启动合并进账号库（按 token 去重，不覆盖已有状态）。
+function parseEnvAccounts() {
+  if (process.env.FREEBUFF_ACCOUNTS) {
+    try {
+      const parsed = JSON.parse(process.env.FREEBUFF_ACCOUNTS);
+      if (Array.isArray(parsed)) {
+        const accounts = parsed.filter(a => a && typeof a.token === "string" && a.token.trim());
+        if (accounts.length) return accounts;
+      }
+    } catch (error) { console.error("[webui] invalid FREEBUFF_ACCOUNTS:", error.message); }
+  }
+  // 与 worker.parseAccounts 同格式：逗号/换行分隔，每项可为纯 token 或 "token:uid"
+  return String(process.env.FREEBUFF_TOKEN || "")
+    .split(/[\n,]/).map(s => s.trim()).filter(s => s.length > 8)
+    .map(s => {
+      const idx = s.indexOf(":");
+      return idx > 0 ? { token: s.slice(0, idx).trim(), id: s.slice(idx + 1).trim() } : { token: s };
+    });
+}
+function seedAccountsFromEnv() {
+  const envAccounts = parseEnvAccounts();
+  if (!envAccounts.length) return;
+  const store = loadStore();
+  const knownTokens = new Set(Object.values(store.accounts || {}).map(a => String(a.authToken || "").trim()));
+  let added = 0;
+  for (const account of envAccounts) {
+    const token = account.token.trim();
+    if (!token || knownTokens.has(token)) continue;
+    const id = String(account.id || "").trim() || `env-${createHash("sha256").update(token).digest("hex").slice(0, 12)}`;
+    if (store.accounts[id]) continue;
+    let proxyUrl = "";
+    if (account.proxyUrl) { try { proxyUrl = normalizeProxyUrl(account.proxyUrl); } catch { proxyUrl = ""; } }
+    store.accounts[id] = { id, email: account.email || id, name: account.name || "env", authToken: token, proxyUrl, enabled: true, createdAt: new Date().toISOString() };
+    knownTokens.add(token);
+    added++;
+  }
+  if (added) {
+    saveStore(store);
+    console.log(`[webui] seeded ${added} account(s) from environment`);
+  }
+}
 function normalizeProxyUrl(value) {
   const proxyUrl = String(value || "").trim();
   if (!proxyUrl) return "";
@@ -155,6 +197,8 @@ function serveStatic(pathname, res) {
   res.end(readFileSync(file));
   return true;
 }
+
+seedAccountsFromEnv();
 
 const port = Number.parseInt(process.env.PORT || "8787", 10);
 const host = process.env.HOST || "0.0.0.0";

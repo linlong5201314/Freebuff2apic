@@ -228,11 +228,27 @@ docker compose restart                        # 或仅重启（自动拉最新 w
 |---|---|
 | `PORT` / `HOST` | 监听端口/地址，默认 `8787` / `0.0.0.0` |
 | `FREEBUFF_API_KEY` | 本 API 访问 key（缺省 `freebuff-default-key`） |
+| `FREEBUFF_TOKEN` | 账号 authToken，逗号/换行分隔多账号；每项可为 `token:uid`。启动时自动并入 WebUI 账号库（按 token 去重） |
+| `FREEBUFF_ACCOUNTS` | 结构化多账号：`[{"token":"...","proxyUrl":"...","id":"..."}]`，优先级高于 `FREEBUFF_TOKEN` |
 | `FREEBUFF_DEBUG` | `true` 开启请求级调试日志 |
+| `ADMIN_PASSWORD` | WebUI 管理密码；不设则每次启动随机生成并打印到日志 |
+| `COOKIE_SECURE` | 走 HTTPS 反代（Railway/Render 等）时设 `true`，登录 cookie 加 `Secure` 标记 |
 | `CODEBUFF_API` | 上游地址，默认空=直连 `https://www.codebuff.com`；走自建中继时设为中继域名 |
 | `RELAY_KEY` | 中继密钥（`CODEBUFF_API` 指向带鉴权的中继时必填） |
 
 > ⚠️ 容器内 `freebuff_credentials.json` 以只读方式挂载；`server.js` 启动时读取并组装 `FREEBUFF_TOKEN`（多账号逗号分隔）。`server.js` 兼容两种格式：多账号聚合 `{"accounts": {...}}`（提取工具默认输出）和单账号顶层 `authToken`。
+
+### 🚄 Railway 部署
+
+仓库自带 `railway.toml`（Dockerfile 构建 + `/healthz` 健康检查），直接从 GitHub 部署即可：
+
+1. 把仓库推到 GitHub（私有仓库即可），在 [Railway](https://railway.app) → **New Project** → **Deploy from GitHub repo** 选择该仓库
+2. 在服务的 **Variables** 中配置环境变量（见下方清单，`FREEBUFF_API_KEY` 和 `ADMIN_PASSWORD` 必设）
+3. （推荐）**Settings → Volumes** 挂载一块卷到 `/app/data`，这样通过 WebUI OAuth 登录的账号在重建后不丢；不挂卷也能跑，但账号只能靠 `FREEBUFF_TOKEN` 环境变量在每次启动时注入
+   > 挂卷后如果 WebUI 授权登录报 `EACCES: permission denied, open '/app/data/accounts.json'`，说明镜像还是旧版（未在启动时修正卷归属）。当前镜像以 root 启动 entrypoint，自动 `chown` 挂载卷后降权到 node 用户运行，重新部署即可。
+4. 部署完成后用 Railway 分配的域名访问：`https://<你的服务>.up.railway.app/v1` 为 API 地址，`/` 为管理 WebUI
+
+> 💡 Railway 自动注入 `PORT`，无需手动设置；平台出口为美国 IP，通常可获完整访问模式。
 
 #### 维护者：发布新镜像到 Docker Hub
 

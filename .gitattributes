@@ -1,0 +1,2 @@
+# shell 脚本必须保持 LF，CRLF 会导致 alpine 容器内 "/bin/sh^M not found"
+*.sh text eol=lf
