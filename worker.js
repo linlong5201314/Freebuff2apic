@@ -639,6 +639,20 @@ function cooldown(token, ms) {
   if (ms > 0) cooldowns.set(token, Date.now() + ms);
 }
 
+// undici 网络层错误（fetch failed / terminated 等）的真实原因在 cause 链上
+// （ECONNREFUSED / ENOTFOUND / TLS / proxy 连接失败）。只取 e.message 会把
+// 诊断压成 "fetch failed" 四个字，502 排查完全没线索。
+function describeError(e) {
+  const msg = String(e?.message || e);
+  const parts = [msg];
+  for (let cause = e?.cause; cause; cause = cause.cause) {
+    const detail = cause.code || cause.message || String(cause);
+    if (!detail) break;
+    parts.push(`[cause: ${detail}]`);
+  }
+  return parts.join(" ");
+}
+
 // Official Freebuff session-gate recovery requires matching both the HTTP
 // status and the relayed error code. Do not treat session_limit_reached or
 // waiting_room_queued as stale sessions: those states must not delete a live
@@ -1444,11 +1458,11 @@ async function executeCodeReview(env, chatParams, mc, isStream, mode) {
       await finalize();
       return mode === "responses" ? jsonResponse(result, 200) : jsonResponse(result, 200);
     } catch (e) {
-      console.error("[code_review]", e);
-      lastErrMsg = String(e.message || e);
+      lastErrMsg = describeError(e);
+      console.error("[code_review]", lastErrMsg);
       if (reviewerRunId) await finishRun(token, reviewerRunId, 1).catch(() => {});
       if (rootRunId) await finishRun(token, rootRunId, 1).catch(() => {});
-      if (/start_run failed|timeout|timed out|abort|reviewer upstream/i.test(lastErrMsg)) cooldown(token, 60 * 1000);
+      if (/start_run failed|timeout|timed out|abort|reviewer upstream|fetch failed|socket|ECONNREFUSED|ENOTFOUND/i.test(lastErrMsg)) cooldown(token, 60 * 1000);
     }
   }
   return jsonResponse({ error: { message: lastErrMsg || "code reviewer failed", type: "api_error" } }, 502);
@@ -1558,8 +1572,8 @@ async function executeChat(env, chatParams, mc, isStream, mode) {
       const agg = await streamToNonStream(resp.body, mc.upstream);
       return jsonResponse(agg, 200);
     } catch (e) {
-      console.error("[" + mode + "]", e);
-      const msg = String(e.message || e);
+      const msg = describeError(e);
+      console.error("[" + mode + "]", msg);
       // 额度探测确认耗尽：清除当前模型 session，按上游 retryAfterMs 冷却后切号。
       if (e instanceof QuotaExhaustedError) {
         sessCache.delete(token + ":" + mc.session);
@@ -1570,7 +1584,9 @@ async function executeChat(env, chatParams, mc, isStream, mode) {
       }
       // 其他上游交互失败/超时继续沿用原有冷却逻辑；流式 chat 不再因固定 20s abort 进入这里。
       // createSession 429（额度耗尽）按 retryAfterMs/文本冷却，不能固定 60s。
-      if (/create session failed|stayed queued|start_run failed|session_model_mismatch|abort|timeout|timed out|terminated/i.test(msg)) {
+      // 网络层失败（fetch failed / terminated / 连接被拒）同样意味着号或代理不可用：
+      // 必须进冷却，否则坏代理的号会在每次请求里被反复重试，最终整请求 502。
+      if (/create session failed|stayed queued|start_run failed|session_model_mismatch|abort|timeout|timed out|terminated|fetch failed|socket|ECONNREFUSED|ENOTFOUND/i.test(msg)) {
         const m429 = msg.match(/429/);
         cooldown(token, m429 ? parseCooldown(msg, 429) : 60 * 1000);
       }
