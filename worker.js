@@ -3,8 +3,11 @@ import { ProxyAgent } from "undici";
 const CODEBUFF_API = "https://www.codebuff.com";
 const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
 const DEFAULT_API_KEY = "freebuff-default-key";
-const VERSION = "1.8.9";
+const VERSION = "1.9.2";
 const CONTEXT_PRUNER_AGENT = "context-pruner";
+// UA 指纹：上游风控按 UA 判断走 SDK 或 Desktop；fetch 默认 UA（undici）会被识别。
+const SDK_UA = "ai-sdk/openai-compatible/1.0.25/codebuff";
+const DESKTOP_UA = "Freebuff-CLI/0.0.138";
 
 // 动态模型注册表：从官方 freebuff 镜像拉取模型清单
 // 真源: https://github.com/CodebuffAI/freebuff (freebuff-private 的 public 镜像)
@@ -637,6 +640,13 @@ function logAccountRoute(enabled, pool, token, model, attempt, reason) {
 
 function cooldown(token, ms) {
   if (ms > 0) cooldowns.set(token, Date.now() + ms);
+}
+
+// 账号被上游永久封禁/阻断时的冷却时长： banned/country_blocked/token_invalid/blocked
+// 都是不可逆状态，60 秒重试毫无意义，直接冷 24 小时避免每日活反复踩雷。
+const HARDCOOL_MS = 24 * 60 * 60 * 1000;
+function hardcool(token) {
+  cooldowns.set(token, Date.now() + HARDCOOL_MS);
 }
 
 // undici 网络层错误（fetch failed / terminated 等）的真实原因在 cause 链上
@@ -1418,6 +1428,7 @@ async function executeCodeReview(env, chatParams, mc, isStream, mode) {
       const headers = {
         Authorization: "Bearer " + token,
         "Content-Type": "application/json",
+        "User-Agent": SDK_UA,
         "x-freebuff-instance-id": sess.instanceId,
       };
       const resp = await accountFetch(token, CODEBUFF_API + "/api/v1/chat/completions", {
@@ -1501,6 +1512,7 @@ async function executeChat(env, chatParams, mc, isStream, mode) {
         const headers = {
           Authorization: "Bearer " + token,
           "Content-Type": "application/json",
+          "User-Agent": SDK_UA,
           "x-freebuff-instance-id": sessForChat.instanceId,
         };
         // x-freebuff-acting-user-id：⚠️ 实测（2026-08-10）不带它 chat 才能过（200），
@@ -1587,8 +1599,14 @@ async function executeChat(env, chatParams, mc, isStream, mode) {
       // 网络层失败（fetch failed / terminated / 连接被拒）同样意味着号或代理不可用：
       // 必须进冷却，否则坏代理的号会在每次请求里被反复重试，最终整请求 502。
       if (/create session failed|stayed queued|start_run failed|session_model_mismatch|abort|timeout|timed out|terminated|fetch failed|socket|ECONNREFUSED|ENOTFOUND/i.test(msg)) {
-        const m429 = msg.match(/429/);
-        cooldown(token, m429 ? parseCooldown(msg, 429) : 60 * 1000);
+        // 被封类错误（403 banned / token_invalid / country_blocked / blocked）
+        // 直接 24 小时硬冷却。60 秒再试对它只会重复封死请求。
+        if (/403|banned|token_invalid|country_blocked|blocked/i.test(msg)) {
+          hardcool(token);
+        } else {
+          const m429 = msg.match(/429/);
+          cooldown(token, m429 ? parseCooldown(msg, 429) : 60 * 1000);
+        }
       }
       lastErrMsg = msg;
       if (debug) console.log(`[acct ${acctTry + 1}] exception: ${msg.slice(0, 120)}, switch account`);
